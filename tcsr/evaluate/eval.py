@@ -40,12 +40,14 @@ import externals.jblib.deep_learning.torch_helpers as dlt_helpers
 import tcsr.evaluate.metrics as metrics
 import tcsr.train.helpers as tr_helpers
 from tcsr.data.data_loader import DatasetClasses
+from chamfer_cal import _chamfer_distance
 
 # 3rd party
 import torch
+# torch.cuda.empty_cache()
 import numpy as np
-from externals.ChamferDistancePytorch.chamfer3D.dist_chamfer_3D import \
-    chamfer_3DDist
+'''from externals.ChamferDistancePytorch.chamfer3D.dist_chamfer_3D import \
+    chamfer_3DDist'''
 
 
 def eval_trrun(dataset, path_trrun, n_iters, n_pts, subjects=[],
@@ -59,8 +61,8 @@ def eval_trrun(dataset, path_trrun, n_iters, n_pts, subjects=[],
         'grid_floor', 'grid_ceil', 'random_floor', 'random_ceil',
         'regular_floor', 'regular_ceil')
 
-    chamfer_distance = chamfer_3DDist()
-
+    # chamfer_distance = chamfer_3DDist()
+    # import pdb; pdb.set_trace()
     # Load trrun config.
     path_conf, path_trstate = dlt_helpers.get_path_conf_tr_state(path_trrun)
     conf = helpers.load_conf(path_conf)
@@ -111,6 +113,7 @@ def eval_trrun(dataset, path_trrun, n_iters, n_pts, subjects=[],
     pcks_all = []
     aucs_all = []
     for it in range(n_iters):
+        
         print(f"\rProcessing iter {it + 1}/{n_iters}.", end='')
 
         # Get data.
@@ -131,10 +134,10 @@ def eval_trrun(dataset, path_trrun, n_iters, n_pts, subjects=[],
             if m in reg_pts_2d:
                 uv = reg_pts_2d[m]
             else:
-                uv = np.tile(tr_helpers.regular_spacing(
-                    m, (0., 1.), 250, 0.994, dev=dev, verbose=verbose).
-                             cpu().numpy(), (P_orig, 1))
+                uv = tr_helpers.regular_spacing(
+                    m, (0., 1.), 250, 0.994, dev=dev, verbose=verbose).cpu().numpy()
                 reg_pts_2d[m] = np.copy(uv)
+            uv = np.tile(uv, (P_orig, 1))
             model.predict(pts, uv=uv)
 
         inds_nclpsd = [inc.detach().cpu().numpy() for
@@ -217,8 +220,19 @@ def eval_trrun(dataset, path_trrun, n_iters, n_pts, subjects=[],
         aucs_all.append(auc.detach().cpu().numpy())
 
         # CD.
-        dp2gt, dgt2p = chamfer_distance(model.pc_pred, pts_reg)[:2]
-        cd_all.append((dp2gt.mean() + dgt2p.mean()).detach().cpu().item())
+        # dp2gt, dgt2p = chamfer_distance(model.pc_pred, pts_reg)[:2]
+        # cd_all.append((dp2gt.mean() + dgt2p.mean()).detach().cpu().item())
+        # print(_chamfer_distance(model.pc_pred, pts_reg))
+        # print(model.pc_pred.shape, pts_reg.shape)
+        cd_val = _chamfer_distance(model.pc_pred, pts_reg)
+        cd_all.append(cd_val.detach().cpu().item())
+
+        # Clean GPU mem.
+        del [smpl, pts, pts_reg, pp_a, pp_b, kpt_gt_a, kpt_gt_b,
+            i_kpt2pp_a, i_pp2kpt_b, kpt_p_b, ranks, dists, pck, auc, cd_val]
+        gc.collect()
+        libc.malloc_trim(0)
+        torch.cuda.empty_cache()
 
     # Process metrics and export to .yaml.
     msl2_all = np.concatenate(msl2_all, axis=0)
@@ -230,8 +244,7 @@ def eval_trrun(dataset, path_trrun, n_iters, n_pts, subjects=[],
            'pck': np.mean(np.stack(pcks_all, axis=0), axis=0).tolist()}
 
     # Clean GPU mem.
-    del [ds, model, smpl, pts, pts_reg, pp_a, pp_b, kpt_gt_a, kpt_gt_b,
-         i_kpt2pp_a, i_pp2kpt_b, kpt_p_b, ranks, dists, pck, auc, dp2gt, dgt2p]
+    del [ds, model]
     gc.collect()
     libc.malloc_trim(0)
     torch.cuda.empty_cache()

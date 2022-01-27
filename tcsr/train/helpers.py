@@ -168,12 +168,15 @@ def create_model_train(conf):
     """
     return ModelMetricConsistency(
         M=conf['M'], code=conf['code'], num_patches=conf['num_patches'],
+        neigh=conf['neigh'],
         enc_batch_norm=conf['enc_batch_norm'],
         dec_batch_norm=conf['dec_batch_norm'],
         loss_scaled_isometry=conf['loss_scaled_isometry'],
         alpha_scaled_isometry=conf['alpha_scaled_isometry'],
-        alphas_sciso=conf['alphas_sciso'], loss_mc=conf['loss_mc'],
-        alpha_mc=conf['alpha_mc'], loss_ssc=conf['loss_ssc'],
+        alphas_sciso=conf['alphas_sciso'], loss_mc=conf['loss_mc'], alpha_mc=conf['alpha_mc'], 
+        loss_mc_approx=conf['loss_mc_approx'], alpha_mc_approx=conf['alpha_mc_approx'],
+        loss_mc_curv=conf['loss_mc_curv'], alpha_mc_curv=conf['alpha_mc_curv'], 
+        epsil=conf['epsil'], loss_ssc=conf['loss_ssc'], 
         alpha_ssc=conf['alpha_ssc'], loss_ssc_cd=conf['loss_ssc_cd'],
         loss_ssc_mc=conf['loss_ssc_mc'], gpu=True)
 

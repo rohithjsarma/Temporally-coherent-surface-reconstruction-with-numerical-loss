@@ -1,7 +1,7 @@
 ### Training settings for the DFAUST dataset.
 
 # Training run.
-path_train_run: ''  # <-- Fill in an absolute path to a directory, where the training data will be saved.
+path_train_run: '/cvlabdata2/home/jayakuma'  # <-- Fill in an absolute path to a directory, where the training data will be saved.
 name_base: ''
 
 ### Data
@@ -58,10 +58,15 @@ code: 1024
 enc_batch_norm: False
 
 # Decoder
-num_patches: 10
+num_patches: 1
 dec_batch_norm: False
 
 ### Losses
+dgp_func: 'approx'
+loss_mc_approx: True
+alpha_mc_approx: 0.1
+loss_mc_curv: True
+alpha_mc_curv: 0.1
 loss_mc: True
 alpha_mc: 0.1
 loss_ssc: True

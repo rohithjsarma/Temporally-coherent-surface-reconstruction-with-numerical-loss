@@ -111,7 +111,8 @@ losses_tr = dlt_helpers.RunningLoss()
 dlit = iter(dl)
 max_iters = conf.get('max_train_iters', float('inf'))
 chkpt_iters = conf.get('checkpoint_iters', None)
-B = conf['bs']
+B = conf['bs'] # B=4
+
 for it in range(it_start, max_iters + 1):
     # Iters per s timing.
     if it == it_start + 1:
@@ -134,6 +135,7 @@ for it in range(it_start, max_iters + 1):
     pts_gt = batch['pts']
     inds = batch['inds']
     A_gt = batch.get('areas', None)
+   
 
     # Feedforward.
     model.forward(pts_gt, B)

@@ -8,6 +8,7 @@ from tcsr.models.encoder import EncoderPointNet
 from tcsr.models.sampler import FNSamplerRandUniform
 from tcsr.models.decoder import DecoderMultiPatch, DecoderAtlasNet
 from tcsr.models.diff_props import DiffGeomProps
+from tcsr.models.diff_props_approx import DiffGeomPropsApprox
 from tcsr.models.common import Device
 import externals.jblib.mesh as jbm
 
@@ -15,10 +16,12 @@ import externals.jblib.mesh as jbm
 class ModelMetricConsistency(nn.Module, Device):
     """ As DSRMMCL with PointNet encoder.
     """
-    def __init__(self, M=2500, code=1024, num_patches=10, enc_batch_norm=False,
+    def __init__(self, M=2500, code=1024, num_patches=10, neigh=9, enc_batch_norm=False,
                  dec_batch_norm=False, dec_actf='softplus',
                  loss_scaled_isometry=False, alpha_scaled_isometry=0.,
                  alphas_sciso=None, loss_mc=False, alpha_mc=1.0,
+                 loss_mc_approx=True, alpha_mc_approx=1.0, loss_mc_curv=True, 
+                 alpha_mc_curv=1.0, epsil=0.00000001,
                  loss_ssc=False, alpha_ssc=1.0, loss_ssc_cd='orig',
                  loss_ssc_mc='orig', gpu=True, **kwargs):
         # Checks.
@@ -31,11 +34,17 @@ class ModelMetricConsistency(nn.Module, Device):
 
         # Save arguments.
         self._num_patches = num_patches
+        self._neigh = neigh
         self._spp = M // num_patches  # Num. of samples per patch.
         self._M = self._spp * num_patches
         self._code = code
         self._num_decoders = num_patches
         self._loss_mc = loss_mc
+        self._loss_mc_approx = loss_mc_approx
+        self._alpha_mc_approx = alpha_mc_approx
+        self._loss_mc_curv = loss_mc_curv
+        self._alpha_mc_curv = alpha_mc_curv
+        self._epsil = epsil
         self._alpha_mc = alpha_mc
         self._loss_distort = loss_scaled_isometry
         self._alpha_distort = alpha_scaled_isometry
@@ -55,8 +64,9 @@ class ModelMetricConsistency(nn.Module, Device):
         self.pc_pred = None
         self.geom_props = None
 
-        # Diff. geom. props object.
-        self.dgp = DiffGeomProps(curv_mean=False, curv_gauss=False, fff=True)
+        self.dgp = DiffGeomPropsApprox(self._neigh, fff=True)
+        
+        
 
         # Build the network.
         self.enc = EncoderPointNet(
@@ -168,6 +178,7 @@ class ModelMetricConsistency(nn.Module, Device):
         Returns:
             Distance matrix, shape (B, M, N).
         """
+
         B, M, D = pc_M.shape
         B2, N, D2 = pc_N.shape
         assert B == B2 and D == D2 and D == 3
@@ -229,7 +240,7 @@ class ModelMetricConsistency(nn.Module, Device):
             torch.Tensor: Scalar loss.
         """
         # Get registrations, get loss.
-        inds_p2gt, inds_gt2p = self._register_pts(pc_gt, pc_pred)
+        inds_p2gt, inds_gt2p = self._register_pts(pc_gt, pc_pred) # indices to the closest point 
         return self._cd(pc_gt, pc_pred, inds_p2gt, inds_gt2p)
 
     def _loss_metric_consistency(self, EFG=None):
@@ -244,6 +255,42 @@ class ModelMetricConsistency(nn.Module, Device):
         E, F, G = EFG.reshape((3, B // 2, 2, P, spp))  # Each (B', 2, P, spp)
         return ((E[:, 0] - E[:, 1]).pow(2.) + 2. * (F[:, 0] - F[:, 1]).pow(2.) +
                 (G[:, 0] - G[:, 1]).pow(2.)).mean()
+
+
+    # new loss function matric consistency approx
+    def _loss_metric_consistency_approx(self, EFG=None):
+        """ TODO: no interpolation version of loss_mc.
+        """
+        EFG = self._get_fff() if EFG is None else EFG  # (3, B, P, spp)
+        
+        P, spp = EFG.shape[2:]
+
+        B = EFG.shape[1]
+        assert B % 2 == 0
+        
+        E, F, G = EFG.reshape((3, B // 2, 2, P, spp))  # Each (B', 2, P, spp)
+
+        # Approx loss function 1
+        # return ((E[:, 0]/(G[:, 0]+self._epsil) - E[:, 1]/(G[:, 1]+self._epsil)).pow(2.) + 
+        #         (F[:, 0]/(G[:, 0]+self._epsil) - F[:, 1]/(G[:, 1]+self._epsil)).pow(2.)).mean()
+        
+        # Approx loss function 2
+        # return (((E[:, 0]+F[:, 0]+G[:, 0]) - (E[:, 1]+F[:, 1]+G[:, 1])).pow(2.)).mean()
+
+        # Approx loss function 3
+        return ((E[:, 0] - E[:, 1]).pow(2.) + (F[:, 0] - F[:, 1]).pow(2.)).mean()
+
+    def _loss_metric_consistency_curvature(self, EFG=None):
+        """ TODO: no interpolation version of loss_mc.
+        """
+        EFG = self._get_fff() if EFG is None else EFG  # (3, B, P, spp)
+        P, spp = EFG.shape[2:]
+
+        B = EFG.shape[1]
+        assert B % 2 == 0
+
+        E, F, G = EFG.reshape((3, B // 2, 2, P, spp))  # Each (B', 2, P, spp)
+        return (((G[:, 0]/(E[:, 0]+F[:, 0]+G[:, 0] + self._epsil)) - (G[:, 1]/(E[:, 1]+F[:, 1]+G[:, 1] + self._epsil))).pow(2.)).mean()
 
     def _loss_self_supervised_correspondences(self, pc_gt, pc_p):
         """ Self-supervised correspondence loss.
@@ -270,7 +317,7 @@ class ModelMetricConsistency(nn.Module, Device):
         # Loss.
         return (pcg - pc_p[:, 1:]).square().sum(dim=3).mean()
 
-    def loss(self, pc_gt, Bo, loss_mc=True, loss_ssc=True, loss_distort=False,
+    def loss(self, pc_gt, Bo, loss_mc_approx=True, loss_mc_curv=True, loss_mc=False, loss_ssc=False, loss_distort=False,
              A_gt=None):
         """ TODO: Temporary loss for a model which does not use interpolation.
         """
@@ -289,9 +336,11 @@ class ModelMetricConsistency(nn.Module, Device):
         if not self._loss_ssc or self._loss_ssc_cd == 'all':
             pcp = self.pc_pred
             pcgt = pc_gt
+        
         elif self._loss_ssc_cd == 'orig':
             pcp = self.pc_pred.reshape((Bo, S, M, 3))[:, 0]
             pcgt = pc_gt.reshape((Bo, S, N, 3))[:, 0]
+    
         L_cd = self._loss_chamfer_distance(pcgt, pcp)
         losses['L_chd'] = L_cd
         losses['loss_tot'] += L_cd
@@ -309,6 +358,26 @@ class ModelMetricConsistency(nn.Module, Device):
             losses['L_mc_raw'] = L_mc
             losses['L_mc'] = self._alpha_mc * L_mc
             losses['loss_tot'] += losses['L_mc']
+
+        #  Metric consistency approx
+        if loss_mc_approx and self._loss_mc_approx:
+            efg = self.geom_props['fff'].reshape((Bo, P, spp, 3)).\
+                    permute(3, 0, 1, 2)
+            L_mc_appox = self._loss_metric_consistency_approx(EFG=efg)
+
+            losses['L_mc_approx_raw'] = L_mc_appox
+            losses['L_mc_approx'] = self._alpha_mc_approx * L_mc_appox
+            losses['loss_tot'] += losses['L_mc_approx']
+
+        # Metric consistency curvature
+        if loss_mc_curv and self._loss_mc_curv:
+            efg = self.geom_props['fff'].reshape((Bo, P, spp, 3)).\
+                    permute(3, 0, 1, 2)
+            L_mc_curv = self._loss_metric_consistency_curvature(EFG=efg)
+
+            losses['L_mc_curv_raw'] = L_mc_curv
+            losses['L_mc_curv'] = self._alpha_mc_curv * L_mc_curv
+            losses['loss_tot'] += losses['L_mc_curv']
 
         # Self-supervised correspondences.
         if loss_ssc and self._loss_ssc:

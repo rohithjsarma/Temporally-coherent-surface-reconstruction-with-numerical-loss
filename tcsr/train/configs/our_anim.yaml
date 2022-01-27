@@ -1,17 +1,17 @@
-### Training settings for the ANIM dataset.
+### Training settings for the DFAUST dataset.
 
 # Training run.
-path_train_run: ''  # <-- Fill in an absolute path to a directory, where the training data will be saved.
-name_base: ''
+path_train_run: '/cvlabdata2/home/jayakuma/testf_withsort'  # <-- Fill in an absolute path to a directory, where the training data will be saved.
+name_base: 'time_check_mc_curve_loss'
 
 ### Data
 ds: 'anim'
-ds_type: ''
+ds_type: 'clean'
 sequences: ['cat_walk']
 
-ds_mode: 'neighbors'  # 'random', 'within_seq', 'neighbors'
+ds_mode: 'neighbors'  # 'random', 'within_seq', 'neighbors' 
 ds_mode_params:
-  max_frames: 1
+  max_frames: 5
 resample_pts: True
 center: False
 align_rotation: False
@@ -20,7 +20,7 @@ ds_pairing_mode_params:
   sample_idx: 0
 
 # Dataset sampling.
-ds_sampling: 'grow'  # 'standard', 'grow'
+ds_sampling: 'standard'  # 'standard', 'grow'
 ds_grow_start: 'center'
 ds_grow_window_init: 5
 ds_grow_conf:
@@ -34,11 +34,11 @@ ds_grow_sampling:
   max_hist_val_mult: 1.2
 
 # Augmentation
-rand_ax_rot: 'single_axis' # None, 'single_axis', '3_ortho_axes'
+rand_ax_rot: # None, 'single_axis', '3_ortho_axes'
 rand_ax_up: 'y'
 rand_ax_steps: 12
 rand_ax_mode: 'random'
-rand_transl: 0.2  # None, 0.2
+rand_transl: # None, 0.2
 
 # Synthetic rotation.
 synth_rot: False
@@ -61,9 +61,14 @@ num_patches: 10
 dec_batch_norm: False
 
 ### Losses
+dgp_func: 'approx'
+loss_mc_approx: False
+alpha_mc_approx: 0.01
+loss_mc_curv: True
+alpha_mc_curv: 0.01
 loss_mc: True
 alpha_mc: 0.1
-loss_ssc: True
+loss_ssc: False
 alpha_ssc: 0.1
 loss_ssc_mode: 'project'
 loss_ssc_cd: 'orig'
@@ -96,3 +101,7 @@ save_num_collapsed_patches_period: 50
 num_vis: 4
 train_state_save_period: 2000
 pcloud_save_period: 2000
+
+#neigh
+neigh: 9
+epsil: 0.00000000001
